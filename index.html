@@ -322,8 +322,7 @@ function openBotMenu(bot){
     + '<div class="lbl" style="margin-bottom:6px">Set a manual status (sticks until you clear it)</div>'
     + '<button class="opt" onclick="setBot(\''+esc(bot)+'\',\'Down\')">Down</button>'
     + '<button class="opt" onclick="setBot(\''+esc(bot)+'\',\'Waiting for Part\')">Waiting for Part</button>'
-    + '<button class="opt" onclick="setBot(\''+esc(bot)+'\',\'Active\')">Active</button>'
-    + (b.manual? '<button class="opt clear" onclick="setBot(\''+esc(bot)+'\',\'\')">Clear override (back to auto)</button>':'')
+    + '<button class="opt" onclick="setBot(\''+esc(bot)+'\',\'\')">Active (auto)</button>'
     + '<button class="cancel" onclick="closeBotMenu()">Cancel</button></div>';
   m.onclick = function(e){ if(e.target===m) closeBotMenu(); };
   document.body.appendChild(m);
