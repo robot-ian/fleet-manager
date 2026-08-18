@@ -35,6 +35,15 @@ header .lbl{margin-left:auto}
 .chip.low .c{color:var(--red)}
 .chip.zero .c{color:var(--red)}
 .chip .tag{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);margin-top:3px;height:12px}
+.chipbtns{display:flex;gap:5px;margin-top:10px}
+.chipbtns button{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:7px;padding:7px 0;font:inherit;font-size:15px;line-height:1;cursor:pointer;
+}
+.chipbtns button:hover{border-color:var(--green);background:#1f2a24;color:var(--lit)}
+.chipbtns button:active{transform:scale(.96)}
+.chipbtns button:focus-visible{outline:2px solid var(--lit);outline-offset:2px}
+.chipbtns .setto{flex:1.4;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 
 /* donor bots */
 .donor{display:flex;align-items:center;gap:11px;background:rgba(232,163,61,.07);border:1px solid #4a3a20;border-left:3px solid var(--amber);border-radius:0 10px 10px 0;padding:11px 14px;margin-bottom:8px}
@@ -153,17 +162,21 @@ function boot(){
   refresh();
 }
 
-function refresh(){
+function refresh(quiet){
   fetch(API_URL + "?t=" + Date.now())
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(!d.ok) throw new Error(d.error||"bad response");
+      var msg = quiet ? (document.getElementById("flash")||{}).textContent : null;
       state = d;
       document.getElementById("conn").textContent = "live";
       render();
+      if(msg){ var f = document.getElementById("flash"); if(f){ f.className="flash ok"; f.textContent = msg; } }
     })
     .catch(function(err){
       document.getElementById("conn").textContent = "offline";
+      /* a quiet background check shouldn't wipe what's on screen */
+      if(quiet) return;
       document.getElementById("app").innerHTML =
         '<div class="card">Couldn\'t reach the backend.<div class="hint">'+esc(String(err))+'</div></div>';
     });
@@ -188,7 +201,12 @@ function render(){
     var tag = q <= 0 ? "Out of stock" : (low==="low" ? "Low" : "");
     h += '<div class="chip '+low+'"><div class="n">'+esc(p.name)+'</div>'
        + '<div class="c">'+q+'<span class="u">left</span></div>'
-       + '<div class="tag">'+tag+'</div></div>';
+       + '<div class="tag">'+tag+'</div>'
+       + '<div class="chipbtns">'
+       +   '<button title="Send one out" onclick="quickStock(\''+esc(p.name)+'\',-1)">−</button>'
+       +   '<button class="setto" title="Set the exact count" onclick="setStock(\''+esc(p.name)+'\','+q+')">set</button>'
+       +   '<button title="Restock one" onclick="quickStock(\''+esc(p.name)+'\',1)">+</button>'
+       + '</div></div>';
   });
   h += '</div>';
 
@@ -330,8 +348,68 @@ function openBotMenu(bot){
 function closeBotMenu(){ var m=document.querySelector(".botmenu"); if(m) m.remove(); }
 function setBot(bot, status){
   closeBotMenu();
+
+  /* update the screen straight away, then confirm with the server */
+  var waitingByBot = {};
+  (state.longOpen || []).forEach(function(o){
+    if(o.bot) (waitingByBot[String(o.bot).trim()] = waitingByBot[String(o.bot).trim()] || []).push(o.part);
+  });
+
+  (state.bots || []).forEach(function(b){
+    if(b.bot !== bot) return;
+    var waits = waitingByBot[b.bot] || [];
+    b.manual = status || "";
+    if(status){
+      b.status = status;
+      b.waitingFor = waits.join(", ");
+    } else if(waits.length){
+      b.status = "Waiting for Part";
+      b.waitingFor = waits.join(", ");
+    } else {
+      b.status = "Active";
+      b.waitingFor = "";
+    }
+  });
+  render();
+
   post({ action:"bot_status", bot:bot, status:status }, null,
        status? (bot+" set to "+status) : (bot+" back to auto"));
+}
+
+/* ---------- quick stock controls on the cards ---------- */
+function quickStock(part, delta){
+  var have = state.stock[part] != null ? state.stock[part] : 0;
+  if(delta < 0 && have <= 0){ flash("No " + part + " left to send", false); return; }
+
+  state.stock[part] = have + delta;   // show it straight away
+  render();
+
+  post({
+    action:"consumable",
+    kind: delta > 0 ? "restock" : "send",
+    part: part, qty: Math.abs(delta),
+    reason: delta > 0 ? "Quick restock" : "Quick send"
+  }, null, (delta > 0 ? "Restocked 1 × " : "Sent 1 × ") + part);
+}
+
+function setStock(part, current){
+  var input = prompt("How many " + part + " do you have right now?", current);
+  if(input === null) return;
+  var target = parseInt(input, 10);
+  if(isNaN(target) || target < 0){ flash("Enter a number, 0 or more", false); return; }
+
+  var diff = target - current;
+  if(diff === 0){ flash(part + " already at " + target, true); return; }
+
+  state.stock[part] = target;   // show it straight away
+  render();
+
+  post({
+    action:"consumable",
+    kind: diff > 0 ? "restock" : "send",
+    part: part, qty: Math.abs(diff),
+    reason: "Stock count corrected to " + target
+  }, null, part + " set to " + target);
 }
 
 function renderRecent(){
@@ -389,7 +467,7 @@ function post(payload, btn, okMsg){
       headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(payload) })
     .then(function(){
       flash(okMsg, true);
-      setTimeout(refresh, 1400);  // re-read so counts update
+      setTimeout(function(){ refresh(true); }, 1400);  // quietly confirm against the server
     })
     .catch(function(){
       flash("Couldn't save — check connection", false);
@@ -424,6 +502,25 @@ function saveLong(){
 
 function markFitted(id){
   var today = new Date().toISOString().slice(0,10);
+
+  /* drop it from the open list now, and free any bot that was waiting on it */
+  var closed = (state.longOpen || []).filter(function(o){ return o.id === id; })[0];
+  state.longOpen = (state.longOpen || []).filter(function(o){ return o.id !== id; });
+  state.donors   = (state.donors   || []).filter(function(d){
+    return !(closed && d.donor === closed.donor && d.part === closed.part && d.forBot === closed.bot);
+  });
+
+  if(closed){
+    var stillWaiting = state.longOpen.some(function(o){ return o.bot === closed.bot; });
+    (state.bots || []).forEach(function(b){
+      if(b.bot === closed.bot && !b.manual && !stillWaiting){
+        b.status = "Active";
+        b.waitingFor = "";
+      }
+    });
+  }
+  render();
+
   post({ action:"longlead_update", id:id, status:"Fitted", fitted:today }, null, "Marked fitted");
 }
 
