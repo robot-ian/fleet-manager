@@ -119,6 +119,8 @@ select{cursor:pointer}
 .bot.down .bs{color:var(--red)}
 .bot .bw{font-size:11px;color:var(--muted);margin-top:3px;min-height:14px}
 .rbt{display:block;width:100%;max-width:250px;height:auto;margin:8px auto 2px}
+.rbt .hit{cursor:pointer}
+.rbt .hit:hover rect,.rbt .hit:hover circle{stroke:var(--lit);stroke-width:1.5}
 .bot .man{position:absolute;top:9px;right:10px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
 .bot .setbtn{margin-top:9px;width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:6px;font:inherit;font-size:11px;cursor:pointer}
 .bot .setbtn:hover{border-color:var(--green);color:var(--text)}
@@ -331,6 +333,18 @@ var REGION = {
 
 var SIDED_REGIONS = { shoulder:1, hand:1, leg:1, feet:1 };
 
+/* region -> parts, derived from REGION so the two can never drift apart */
+var PARTS_IN = (function(){
+  var m = {};
+  Object.keys(REGION).forEach(function(p){ (m[REGION[p]] = m[REGION[p]] || []).push(p); });
+  return m;
+})();
+
+var REGION_LABEL = {
+  body:"Body", neck:"Neck", hips:"Hips", shoulder:"Shoulder",
+  hand:"Hand", leg:"Leg", feet:"Feet", bat1:"Battery 1", bat2:"Battery 2"
+};
+
 /* Returns the regions to light red, e.g. { "shoulder-L":1, "body":1 } */
 function hurtRegions(b){
   var out = {};
@@ -355,6 +369,12 @@ function robotSVG(b){
   function lab(k){ return hurt[k] ? "var(--red)" : "#7d8b84"; }
   var st = 'stroke="#0a0e0c" stroke-width="1"';
   var LN = 'stroke="#2f3b35" stroke-width="1"';
+  var bq = String(b.bot).replace(/'/g, "\\'");
+  /* wrap a region's shapes so the whole thing is one click target */
+  function hit(region, side, shapes){
+    return '<g class="hit" onclick="pickRegion(\''+bq+'\',\''+region+'\',\''+(side||"")+'\')">'
+         + shapes + '</g>';
+  }
 
   var h = '<svg class="rbt" viewBox="0 0 268 200" aria-hidden="true">';
   h += '<g font-family="IBM Plex Mono, monospace" font-size="8" letter-spacing="0.5">';
@@ -371,32 +391,35 @@ function robotSVG(b){
 
   /* ---- the robot ---- */
   h += '<rect x="118" y="10" width="24" height="20" rx="6" fill="'+base+'" '+st+'/>';               /* head */
-  h += '<rect x="124" y="30" width="12" height="6"  rx="2" fill="'+f("neck")+'" '+st+'/>';          /* neck */
-  h += '<rect x="113" y="36" width="34" height="32" rx="6" fill="'+f("body")+'" '+st+'/>';          /* body */
-  h += '<rect x="116" y="69" width="28" height="12" rx="4" fill="'+f("hips")+'" '+st+'/>';          /* hips */
+  h += hit("neck","", '<rect x="124" y="30" width="12" height="6"  rx="2" fill="'+f("neck")+'" '+st+'/>');
+  h += hit("body","", '<rect x="113" y="36" width="34" height="32" rx="6" fill="'+f("body")+'" '+st+'/>');
+  h += hit("hips","", '<rect x="116" y="69" width="28" height="12" rx="4" fill="'+f("hips")+'" '+st+'/>');
 
-  h += '<circle cx="104" cy="43" r="6" fill="'+f("shoulder-R")+'" '+st+'/>';
-  h += '<circle cx="156" cy="43" r="6" fill="'+f("shoulder-L")+'" '+st+'/>';
-  h += '<rect x="100" y="48" width="8" height="24" rx="4" fill="'+f("shoulder-R")+'" '+st+'/>';
-  h += '<rect x="152" y="48" width="8" height="24" rx="4" fill="'+f("shoulder-L")+'" '+st+'/>';
+  h += hit("shoulder","Right",
+        '<circle cx="104" cy="43" r="6" fill="'+f("shoulder-R")+'" '+st+'/>'
+      + '<rect x="100" y="48" width="8" height="24" rx="4" fill="'+f("shoulder-R")+'" '+st+'/>');
+  h += hit("shoulder","Left",
+        '<circle cx="156" cy="43" r="6" fill="'+f("shoulder-L")+'" '+st+'/>'
+      + '<rect x="152" y="48" width="8" height="24" rx="4" fill="'+f("shoulder-L")+'" '+st+'/>');
 
   /* grippers: a wrist block with two prongs */
-  [["R",104],["L",156]].forEach(function(p){
+  [["R",104,"Right"],["L",156,"Left"]].forEach(function(p){
     var sd = p[0], cx = p[1], c = f("hand-"+sd);
-    h += '<rect x="'+(cx-7)+'" y="73" width="14" height="6" rx="2" fill="'+c+'" '+st+'/>';
-    h += '<rect x="'+(cx-6)+'" y="79" width="4"  height="8" rx="1.5" fill="'+c+'" '+st+'/>';
-    h += '<rect x="'+(cx+2)+'" y="79" width="4"  height="8" rx="1.5" fill="'+c+'" '+st+'/>';
+    h += hit("hand", p[2],
+          '<rect x="'+(cx-7)+'" y="73" width="14" height="6" rx="2" fill="'+c+'" '+st+'/>'
+        + '<rect x="'+(cx-6)+'" y="79" width="4"  height="8" rx="1.5" fill="'+c+'" '+st+'/>'
+        + '<rect x="'+(cx+2)+'" y="79" width="4"  height="8" rx="1.5" fill="'+c+'" '+st+'/>');
   });
 
-  h += '<rect x="117" y="81" width="11" height="34" rx="4" fill="'+f("leg-R")+'" '+st+'/>';
-  h += '<rect x="132" y="81" width="11" height="34" rx="4" fill="'+f("leg-L")+'" '+st+'/>';
-  h += '<rect x="113" y="116" width="17" height="8" rx="3" fill="'+f("feet-R")+'" '+st+'/>';
-  h += '<rect x="130" y="116" width="17" height="8" rx="3" fill="'+f("feet-L")+'" '+st+'/>';
+  h += hit("leg","Right",  '<rect x="117" y="81" width="11" height="34" rx="4" fill="'+f("leg-R")+'" '+st+'/>');
+  h += hit("leg","Left",   '<rect x="132" y="81" width="11" height="34" rx="4" fill="'+f("leg-L")+'" '+st+'/>');
+  h += hit("feet","Right", '<rect x="113" y="116" width="17" height="8" rx="3" fill="'+f("feet-R")+'" '+st+'/>');
+  h += hit("feet","Left",  '<rect x="130" y="116" width="17" height="8" rx="3" fill="'+f("feet-L")+'" '+st+'/>');
 
   /* ---- floor, with the two batteries standing on it ---- */
   h += '<line x1="40" y1="126" x2="228" y2="126" stroke="#2f3b35" stroke-width="1.5"/>';
-  h += '<rect x="64"  y="110" width="24" height="16" rx="3" fill="'+f("bat1")+'" '+st+'/>';
-  h += '<rect x="172" y="110" width="24" height="16" rx="3" fill="'+f("bat2")+'" '+st+'/>';
+  h += hit("bat1","", '<rect x="64"  y="110" width="24" height="16" rx="3" fill="'+f("bat1")+'" '+st+'/>');
+  h += hit("bat2","", '<rect x="172" y="110" width="24" height="16" rx="3" fill="'+f("bat2")+'" '+st+'/>');
 
   /* ---- labels ---- */
   h += '<text x="56" y="23"  text-anchor="end" fill="#7d8b84">HEAD</text>';
@@ -405,7 +428,7 @@ function robotSVG(b){
   h += '<text x="56" y="79"  text-anchor="end" fill="'+lab("hips")+'">HIPS &middot; IMU</text>';
 
   h += '<text x="212" y="46"  fill="'+lab("shoulder-L")+'">SHOULDER</text>';
-  h += '<text x="212" y="83"  fill="'+lab("hand-L")+'">GRIPPER</text>';
+  h += '<text x="212" y="83"  fill="'+lab("hand-L")+'">HAND</text>';
   h += '<text x="212" y="103" fill="'+lab("leg-L")+'">LEG</text>';
   h += '<text x="212" y="129" fill="'+lab("feet-L")+'">FEET</text>';
 
@@ -518,6 +541,71 @@ function setStock(part, current){
     part: part, qty: Math.abs(diff),
     reason: "Stock count corrected to " + target
   }, null, part + " set to " + target);
+}
+
+
+/* ---------- clicking a body region ---------- */
+function pickRegion(bot, region, side){
+  var b = (state.bots||[]).filter(function(x){ return x.bot===bot; })[0];
+  if(!b) return;
+
+  var label = (side ? side + " " : "") + (REGION_LABEL[region] || region);
+  var parts = PARTS_IN[region] || [];
+
+  /* anything already open on this exact spot? */
+  var open = (state.longOpen||[]).filter(function(o){
+    if(o.bot !== bot) return false;
+    if(REGION[o.part] !== region) return false;
+    if(!SIDED_REGIONS[region]) return true;
+    return !o.side || !side || o.side.toLowerCase() === side.toLowerCase();
+  });
+
+  var m = document.createElement("div");
+  m.className = "botmenu";
+  var inner = '<div class="inner"><h3>' + esc(bot) + ' &middot; ' + esc(label) + '</h3>';
+
+  if(open.length){
+    inner += '<div class="lbl" style="margin-bottom:6px">Currently waiting on</div>';
+    open.forEach(function(o){
+      inner += '<button class="opt" onclick="markFitted(\'' + esc(o.id) + '\');closeBotMenu()">'
+            +  'Mark ' + esc(o.part) + ' fitted</button>';
+    });
+    inner += '<div class="lbl" style="margin:14px 0 6px">Or log another</div>';
+  } else {
+    inner += '<div class="lbl" style="margin-bottom:6px">Log a part as needing replacement</div>';
+  }
+
+  parts.forEach(function(p){
+    inner += '<button class="opt" onclick="logFromDiagram(\'' + esc(bot) + '\',\'' + esc(p) + '\',\'' + esc(side) + '\')">'
+          +  esc(p) + '</button>';
+  });
+
+  inner += '<button class="cancel" onclick="closeBotMenu()">Cancel</button></div>';
+  m.innerHTML = inner;
+  m.onclick = function(e){ if(e.target===m) closeBotMenu(); };
+  document.body.appendChild(m);
+}
+
+function logFromDiagram(bot, part, side){
+  closeBotMenu();
+  var today = new Date().toISOString().slice(0,10);
+  var id = "tmp" + Date.now();
+
+  /* show it immediately */
+  state.longOpen = state.longOpen || [];
+  state.longOpen.push({ id:id, part:part, side:side||"", bot:bot, broke:today,
+                        source:"", donor:"", status:"Waiting", fitted:"", note:"" });
+  (state.bots||[]).forEach(function(x){
+    if(x.bot !== bot) return;
+    x.waits = (x.waits||[]).concat([{ part:part, side:side||"" }]);
+    x.waitingFor = x.waits.map(function(w){ return (w.side? w.side+" ":"") + w.part; }).join(", ");
+    if(!x.manual) x.status = "Waiting for Part";
+  });
+  render();
+
+  post({ action:"longlead", part:part, side:side||"", bot:bot, broke:today,
+         source:"", status:"Waiting", note:"Logged from diagram" },
+       null, part + " logged for " + bot);
 }
 
 function renderRecent(){
