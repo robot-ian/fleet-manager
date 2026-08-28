@@ -326,12 +326,12 @@ var REGION = {
   "IMU Board":"hips",
   "Shoulder Motor":"shoulder",
   "Hand Motor":"hand",
-  "Gripper":"hand",
+  "Gripper":"gripper",
   "Leg Motor":"leg",
   "Feet":"feet"
 };
 
-var SIDED_REGIONS = { shoulder:1, hand:1, leg:1, feet:1 };
+var SIDED_REGIONS = { shoulder:1, hand:1, gripper:1, leg:1, feet:1 };
 
 /* region -> parts, derived from REGION so the two can never drift apart */
 var PARTS_IN = (function(){
@@ -342,7 +342,7 @@ var PARTS_IN = (function(){
 
 var REGION_LABEL = {
   body:"Body", neck:"Neck", hips:"Hips", shoulder:"Shoulder",
-  hand:"Hand", leg:"Leg", feet:"Feet", bat1:"Battery 1", bat2:"Battery 2"
+  hand:"Hand", gripper:"Gripper", leg:"Leg", feet:"Feet", bat1:"Battery 1", bat2:"Battery 2"
 };
 
 /* Returns the regions to light red, e.g. { "shoulder-L":1, "body":1 } */
@@ -384,8 +384,9 @@ function robotSVG(b){
   h += '<line x1="60" y1="35"  x2="122" y2="35"  '+LN+'/>';   /* neck */
   h += '<line x1="60" y1="52"  x2="112" y2="52"  '+LN+'/>';   /* body */
   h += '<line x1="60" y1="76"  x2="115" y2="76"  '+LN+'/>';   /* hips */
-  h += '<line x1="208" y1="43" x2="162" y2="43" '+LN+'/>';    /* shoulder */
-  h += '<line x1="208" y1="80" x2="162" y2="80" '+LN+'/>';    /* gripper */
+  h += '<line x1="208" y1="43" x2="163" y2="43" '+LN+'/>';    /* shoulder */
+  h += '<line x1="208" y1="60" x2="162" y2="60" '+LN+'/>';    /* hand */
+  h += '<line x1="208" y1="83" x2="164" y2="83" '+LN+'/>';    /* gripper */
   h += '<line x1="208" y1="100" x2="144" y2="100" '+LN+'/>';  /* leg */
   h += '<line x1="208" y1="126" x2="150" y2="126" '+LN+'/>';  /* feet */
 
@@ -395,17 +396,15 @@ function robotSVG(b){
   h += hit("body","", '<rect x="113" y="36" width="34" height="32" rx="6" fill="'+f("body")+'" '+st+'/>');
   h += hit("hips","", '<rect x="116" y="69" width="28" height="12" rx="4" fill="'+f("hips")+'" '+st+'/>');
 
-  h += hit("shoulder","Right",
-        '<circle cx="104" cy="43" r="6" fill="'+f("shoulder-R")+'" '+st+'/>'
-      + '<rect x="100" y="48" width="8" height="24" rx="4" fill="'+f("shoulder-R")+'" '+st+'/>');
-  h += hit("shoulder","Left",
-        '<circle cx="156" cy="43" r="6" fill="'+f("shoulder-L")+'" '+st+'/>'
-      + '<rect x="152" y="48" width="8" height="24" rx="4" fill="'+f("shoulder-L")+'" '+st+'/>');
+  h += hit("shoulder","Right", '<circle cx="104" cy="43" r="6" fill="'+f("shoulder-R")+'" '+st+'/>');
+  h += hit("shoulder","Left",  '<circle cx="156" cy="43" r="6" fill="'+f("shoulder-L")+'" '+st+'/>');
+  h += hit("hand","Right", '<rect x="100" y="48" width="8" height="24" rx="4" fill="'+f("hand-R")+'" '+st+'/>');
+  h += hit("hand","Left",  '<rect x="152" y="48" width="8" height="24" rx="4" fill="'+f("hand-L")+'" '+st+'/>');
 
   /* grippers: a wrist block with two prongs */
   [["R",104,"Right"],["L",156,"Left"]].forEach(function(p){
-    var sd = p[0], cx = p[1], c = f("hand-"+sd);
-    h += hit("hand", p[2],
+    var sd = p[0], cx = p[1], c = f("gripper-"+sd);
+    h += hit("gripper", p[2],
           '<rect x="'+(cx-7)+'" y="73" width="14" height="6" rx="2" fill="'+c+'" '+st+'/>'
         + '<rect x="'+(cx-6)+'" y="79" width="4"  height="8" rx="1.5" fill="'+c+'" '+st+'/>'
         + '<rect x="'+(cx+2)+'" y="79" width="4"  height="8" rx="1.5" fill="'+c+'" '+st+'/>');
@@ -416,8 +415,7 @@ function robotSVG(b){
   h += hit("feet","Right", '<rect x="113" y="116" width="17" height="8" rx="3" fill="'+f("feet-R")+'" '+st+'/>');
   h += hit("feet","Left",  '<rect x="130" y="116" width="17" height="8" rx="3" fill="'+f("feet-L")+'" '+st+'/>');
 
-  /* ---- floor, with the two batteries standing on it ---- */
-  h += '<line x1="40" y1="126" x2="228" y2="126" stroke="#2f3b35" stroke-width="1.5"/>';
+  /* ---- the two batteries, sitting either side ---- */
   h += hit("bat1","", '<rect x="64"  y="110" width="24" height="16" rx="3" fill="'+f("bat1")+'" '+st+'/>');
   h += hit("bat2","", '<rect x="172" y="110" width="24" height="16" rx="3" fill="'+f("bat2")+'" '+st+'/>');
 
@@ -428,7 +426,8 @@ function robotSVG(b){
   h += '<text x="56" y="79"  text-anchor="end" fill="'+lab("hips")+'">HIPS &middot; IMU</text>';
 
   h += '<text x="212" y="46"  fill="'+lab("shoulder-L")+'">SHOULDER</text>';
-  h += '<text x="212" y="83"  fill="'+lab("hand-L")+'">HAND</text>';
+  h += '<text x="212" y="63"  fill="'+lab("hand-L")+'">HAND</text>';
+  h += '<text x="212" y="86"  fill="'+lab("gripper-L")+'">GRIPPER</text>';
   h += '<text x="212" y="103" fill="'+lab("leg-L")+'">LEG</text>';
   h += '<text x="212" y="129" fill="'+lab("feet-L")+'">FEET</text>';
 
