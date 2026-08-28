@@ -118,6 +118,7 @@ select{cursor:pointer}
 .bot.waiting .bs{color:var(--amber)}
 .bot.down .bs{color:var(--red)}
 .bot .bw{font-size:11px;color:var(--muted);margin-top:3px;min-height:14px}
+.rbt{display:block;width:100%;max-width:78px;height:auto;margin:9px auto 4px}
 .bot .man{position:absolute;top:9px;right:10px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
 .bot .setbtn{margin-top:9px;width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:6px;font:inherit;font-size:11px;cursor:pointer}
 .bot .setbtn:hover{border-color:var(--green);color:var(--text)}
@@ -231,7 +232,8 @@ function render(){
     h += '<div class="log">';
     open.forEach(function(o){
       h += '<div class="le longlead"><span class="pill">'+esc(o.status||"Waiting")+'</span>'
-         + '<span class="main"><b>'+esc(o.part)+'</b> for '+esc(o.bot||"?")
+         + '<span class="main"><b>'+(o.side? esc(o.side)+' ':'')+esc(o.part)
+         + (o.joint? ' (J'+esc(o.joint)+')':'')+'</b> for '+esc(o.bot||"?")
          + (o.source? ' &middot; '+esc(o.source):'')
          + (o.donor? ' ('+esc(o.donor)+')':'')
          + (o.broke? ' &middot; broke '+esc(o.broke):'') + '</span>'
@@ -288,7 +290,11 @@ function longForm(longs){
   var opts = longs.map(function(p){ return '<option>'+esc(p.name)+'</option>'; }).join("");
   return ''
   + '<div class="row2">'
-  +   '<div class="f"><span class="lbl">Part needed</span><select id="l_part">'+opts+'</select></div>'
+  +   '<div class="f"><span class="lbl">Part needed</span><select id="l_part" onchange="toggleSide()">'+opts+'</select></div>'
+  +   '<div class="f" id="sideWrap" style="display:none"><span class="lbl">Which side</span>'
+  +     '<select id="l_side"><option>Left</option><option>Right</option></select></div>'
+  +   '<div class="f" id="jointWrap" style="display:none"><span class="lbl">Which joint</span>'
+  +     '<select id="l_joint"><option>1</option><option>2</option><option>3</option></select></div>'
   +   '<div class="f"><span class="lbl">Bot needing it</span><input id="l_bot" placeholder="Which bot is down"></div>'
   + '</div>'
   + '<div class="row2">'
@@ -308,6 +314,97 @@ function longForm(longs){
   + '<button class="save" id="saveL">Log it</button>';
 }
 
+
+/* ---------- which body region each long-lead part belongs to ---------- */
+var REGION = {
+  "NX Board":"body",          /* the brains, mounted inside the torso */
+  "Port PCB":"neck",
+  "Battery 1":"bat1",         /* left side of the torso */
+  "Battery 2":"bat2",         /* right side */
+  "Core Body Motor":"body",
+  "Robot Hook":"body",
+  "IMU Board":"hips",
+  "Shoulder Motor":"shoulder",
+  "Hand Motor":"hand",
+  "Gripper":"hand",
+  "Leg Motor":"leg",
+  "Feet":"feet"
+};
+
+var SIDED_REGIONS = { shoulder:1, hand:1, leg:1, feet:1 };
+
+/* Returns the set of regions to light red, e.g. { "shoulder-L":1, "hand-R-2":1 } */
+function hurtRegions(b){
+  var out = {};
+  (b.waits || []).forEach(function(w){
+    var r = REGION[w.part];
+    if(!r) return;
+
+    if(!SIDED_REGIONS[r]){ out[r] = 1; return; }
+
+    var side = (w.side||"").toLowerCase();
+    var sides = side.indexOf("left")===0 ? ["L"]
+              : side.indexOf("right")===0 ? ["R"]
+              : ["L","R"];                       /* side unknown: flag both */
+
+    sides.forEach(function(sd){
+      if(r === "hand" && w.joint){
+        out["hand-"+sd+"-"+w.joint] = 1;         /* just that finger joint */
+      } else if(r === "hand"){
+        out["hand-"+sd] = 1;                     /* whole hand */
+      } else {
+        out[r+"-"+sd] = 1;
+      }
+    });
+  });
+  return out;
+}
+
+function robotSVG(b){
+  var hurt = hurtRegions(b);
+  var down = b.status === "Down";
+  var base = down ? "#3a4640" : "#42524a";
+  function f(key){ return hurt[key] ? "var(--red)" : base; }
+  /* a hand joint is red if it is flagged directly, or the whole hand is */
+  function fj(sd, j){ return (hurt["hand-"+sd] || hurt["hand-"+sd+"-"+j]) ? "var(--red)" : base; }
+  var st = 'stroke="#0a0e0c" stroke-width="1"';
+
+  var h = '<svg class="rbt" viewBox="0 0 100 116" aria-hidden="true">';
+
+  /* head: the NX board */
+  h += '<rect x="38" y="2" width="24" height="20" rx="6" fill="'+f("head")+'" '+st+'/>';
+  /* neck: port PCB */
+  h += '<rect x="44" y="22" width="12" height="6" rx="2" fill="'+f("neck")+'" '+st+'/>';
+  /* body: core body motor + hook */
+  h += '<rect x="33" y="28" width="34" height="30" rx="6" fill="'+f("body")+'" '+st+'/>';
+  /* batteries, one each side of the torso */
+  h += '<rect x="23" y="33" width="8" height="20" rx="3" fill="'+f("bat1")+'" '+st+'/>';
+  h += '<rect x="69" y="33" width="8" height="20" rx="3" fill="'+f("bat2")+'" '+st+'/>';
+  /* hips: IMU */
+  h += '<rect x="36" y="59" width="28" height="12" rx="4" fill="'+f("hips")+'" '+st+'/>';
+  /* shoulders */
+  h += '<circle cx="19" cy="34" r="6" fill="'+f("shoulder-R")+'" '+st+'/>';
+  h += '<circle cx="81" cy="34" r="6" fill="'+f("shoulder-L")+'" '+st+'/>';
+  /* arms */
+  h += '<rect x="15" y="39" width="8" height="22" rx="4" fill="'+f("shoulder-R")+'" '+st+'/>';
+  h += '<rect x="77" y="39" width="8" height="22" rx="4" fill="'+f("shoulder-L")+'" '+st+'/>';
+  /* hands: three joints each */
+  [["R",19],["L",81]].forEach(function(p){
+    var sd = p[0], cx = p[1];
+    h += '<rect x="'+(cx-6)+'" y="62" width="12" height="5" rx="2" fill="'+fj(sd,"1")+'" '+st+'/>';
+    h += '<rect x="'+(cx-6)+'" y="68" width="12" height="5" rx="2" fill="'+fj(sd,"2")+'" '+st+'/>';
+    h += '<rect x="'+(cx-6)+'" y="74" width="12" height="5" rx="2" fill="'+fj(sd,"3")+'" '+st+'/>';
+  });
+  /* legs: whole */
+  h += '<rect x="37" y="71" width="11" height="32" rx="4" fill="'+f("leg-R")+'" '+st+'/>';
+  h += '<rect x="52" y="71" width="11" height="32" rx="4" fill="'+f("leg-L")+'" '+st+'/>';
+  /* feet */
+  h += '<rect x="33" y="104" width="17" height="8" rx="3" fill="'+f("feet-R")+'" '+st+'/>';
+  h += '<rect x="50" y="104" width="17" height="8" rx="3" fill="'+f("feet-L")+'" '+st+'/>';
+
+  return h + '</svg>';
+}
+
 function renderFleet(){
   var bots = state.bots || [];
   if(!bots.length) return '<div class="empty">No bots in the BOTS tab yet.</div>';
@@ -324,6 +421,7 @@ function renderFleet(){
        + (b.manual? '<span class="man">manual</span>':'')
        + '<div class="bn">'+esc(b.bot)+'</div>'
        + '<div class="bs">'+esc(b.status)+'</div>'
+       + robotSVG(b)
        + '<div class="bw">'+(b.waitingFor? 'Needs '+esc(b.waitingFor):'')+'</div>'
        + '<button class="setbtn" onclick="openBotMenu(\''+esc(b.bot)+'\')">Set status</button>'
        + '</div>';
@@ -440,6 +538,14 @@ function renderRecent(){
 /* ---------- interactions ---------- */
 function setMode(m){ mode = m; render(); }
 function bump(n){ var el=document.getElementById("c_qty"); el.value = Math.max(1,(parseInt(el.value,10)||1)+n); }
+var SIDED = ["Shoulder Motor","Hand Motor","Leg Motor","Feet","Gripper"];
+function toggleSide(){
+  var el = document.getElementById("l_part"); if(!el) return;
+  var w = document.getElementById("sideWrap");
+  if(w) w.style.display = SIDED.indexOf(el.value) >= 0 ? "block" : "none";
+  var j = document.getElementById("jointWrap");
+  if(j) j.style.display = (el.value === "Hand Motor") ? "block" : "none";
+}
 function toggleDonor(){ var s=document.getElementById("l_source").value; document.getElementById("donorWrap").style.display = /scaveng/i.test(s)?"block":"none"; }
 function toggleFitted(){ var s=document.getElementById("l_status").value; document.getElementById("fittedWrap").style.display = s==="Fitted"?"block":"none"; }
 
@@ -458,7 +564,7 @@ function wireForm(){
     sc.onclick = saveConsumable;
   }
   var sl = document.getElementById("saveL");
-  if(sl) sl.onclick = saveLong;
+  if(sl){ sl.onclick = saveLong; toggleSide(); }
 }
 
 function post(payload, btn, okMsg){
@@ -490,7 +596,10 @@ function saveConsumable(){
 
 function saveLong(){
   var p = {
-    action:"longlead", part:val("l_part"), bot:val("l_bot"),
+    action:"longlead", part:val("l_part"),
+    side: SIDED.indexOf(val("l_part")) >= 0 ? val("l_side") : "",
+    joint: val("l_part") === "Hand Motor" ? val("l_joint") : "",
+    bot:val("l_bot"),
     broke:val("l_broke"), source:val("l_source"), donor:val("l_donor"),
     status:val("l_status"), fitted:val("l_fitted"), note:val("l_note")
   };
