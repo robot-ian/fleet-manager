@@ -267,7 +267,7 @@ function render(){
          + (o.source? ' &middot; '+esc(o.source):'')
          + (o.donor? ' ('+esc(o.donor)+')':'')
          + (o.broke? ' &middot; broke '+esc(o.broke):'') + '</span>'
-         + '<button class="statusbtn" onclick="markFitted(\''+esc(o.id)+'\')">Mark fitted</button></div>';
+         + '<button class="statusbtn" onclick="markFitted(\''+esc(o.id)+'\')">Fixed</button></div>';
     });
     h += '</div>';
   }
@@ -663,9 +663,12 @@ function setStock(part, current){
 
 /* ---------- clicking a body region ---------- */
 function driveId(url){
-  var m = String(url||"").match(/[-\w]{25,}/);
+  var v = String(url||"").trim();
+  if(/^UPLOAD FAILED/i.test(v)) return "";
+  var m = v.match(/[-\w]{25,}/);
   return m ? m[0] : "";
 }
+function photoFailed(url){ return /^UPLOAD FAILED/i.test(String(url||"").trim()); }
 function photoThumb(url){
   var id = driveId(url);
   return id ? ("https://drive.google.com/thumbnail?id=" + id + "&sz=w800") : url;
@@ -709,17 +712,20 @@ function pickRegion(bot, region, side){
         inner += '<div class="rq-r"><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>';
       });
 
-      if(o.photo){
+      if(photoFailed(o.photo)){
+        inner += '<div class="hint" style="margin-top:6px;color:var(--red)">'
+              +  'Photo upload failed. Run testPhotoAccess in Apps Script to grant Drive access.</div>';
+      } else if(driveId(o.photo)){
         inner += '<a class="rq-p" href="' + esc(photoLink(o.photo)) + '" target="_blank" rel="noopener">'
               +  '<img src="' + esc(photoThumb(o.photo)) + '" alt="" '
-              +  'onerror="this.parentNode.innerHTML=\'<span class=&quot;hint&quot;>Photo saved &mdash; open in Drive</span>\'">'
+              +  'onerror="this.onerror=null;this.src=\'https://lh3.googleusercontent.com/d/' + esc(driveId(o.photo)) + '=w800\'">'
               +  '<span class="hint">Tap to open full size</span></a>';
       } else {
         inner += '<div class="hint" style="margin-top:6px">No photo on this one</div>';
       }
 
       inner += '<button class="opt" style="margin-top:10px" onclick="markFitted(\'' + esc(o.id) + '\');closeBotMenu()">'
-            +  'Mark fitted</button>';
+            +  'Fixed</button>';
       inner += '</div>';
     });
     inner += '<div class="lbl" style="margin:16px 0 6px">Or log another</div>';
@@ -971,7 +977,7 @@ function markFitted(id){
   }
   render();
 
-  post({ action:"longlead_update", id:id, status:"Fitted", fitted:today }, null, "Marked fitted");
+  post({ action:"longlead_update", id:id, status:"Fitted", fitted:today }, null, "Marked as fixed");
 }
 
 /* ---------- helpers ---------- */
