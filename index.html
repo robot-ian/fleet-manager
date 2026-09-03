@@ -140,6 +140,16 @@ select{cursor:pointer}
 .botmenu .opt.clear{color:var(--muted)}
 .botmenu .cancel{margin-top:12px;width:100%;background:none;border:none;color:var(--muted);font:inherit;cursor:pointer;padding:8px}
 .botmenu .inner.wide{max-width:460px;max-height:88vh;overflow-y:auto}
+.botmenu .inner{max-height:88vh;overflow-y:auto}
+.reqcard{background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--amber);
+  border-radius:0 10px 10px 0;padding:13px 14px;margin-bottom:10px}
+.rq-h{font-weight:600;font-size:15px;margin-bottom:8px;color:var(--text)}
+.rq-r{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:3px 0;color:var(--muted)}
+.rq-r b{color:#c3cec8;font-weight:500;text-align:right}
+.rq-p{display:block;margin-top:9px;text-decoration:none}
+.rq-p img{width:100%;max-height:220px;object-fit:contain;background:#0a0e0c;
+  border:1px solid var(--line);border-radius:8px;display:block;margin-bottom:4px}
+.rq-p .hint{display:block;text-align:center}
 .srcrow{display:flex;gap:7px}
 .srcrow .src{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);
   border-radius:9px;padding:11px 4px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
@@ -652,6 +662,19 @@ function setStock(part, current){
 
 
 /* ---------- clicking a body region ---------- */
+function driveId(url){
+  var m = String(url||"").match(/[-\w]{25,}/);
+  return m ? m[0] : "";
+}
+function photoThumb(url){
+  var id = driveId(url);
+  return id ? ("https://drive.google.com/thumbnail?id=" + id + "&sz=w800") : url;
+}
+function photoLink(url){
+  var id = driveId(url);
+  return id ? ("https://drive.google.com/file/d/" + id + "/view") : url;
+}
+
 function pickRegion(bot, region, side){
   var b = (state.bots||[]).filter(function(x){ return x.bot===bot; })[0];
   if(!b) return;
@@ -672,12 +695,34 @@ function pickRegion(bot, region, side){
   var inner = '<div class="inner"><h3>' + esc(bot) + ' &middot; ' + esc(label) + '</h3>';
 
   if(open.length){
-    inner += '<div class="lbl" style="margin-bottom:6px">Currently waiting on</div>';
+    inner += '<div class="lbl" style="margin-bottom:8px">Currently waiting on</div>';
     open.forEach(function(o){
-      inner += '<button class="opt" onclick="markFitted(\'' + esc(o.id) + '\');closeBotMenu()">'
-            +  'Mark ' + esc(o.part) + ' fitted</button>';
+      inner += '<div class="reqcard">';
+      inner += '<div class="rq-h">' + (o.side ? esc(o.side) + ' ' : '') + esc(o.part) + '</div>';
+
+      var rows = [];
+      if(o.broke)  rows.push(["Broke",  o.broke]);
+      if(o.source) rows.push(["Source", o.source]);
+      if(o.donor)  rows.push(["Taken from", o.donor]);
+      if(o.note)   rows.push(["Note",   o.note]);
+      rows.forEach(function(r){
+        inner += '<div class="rq-r"><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>';
+      });
+
+      if(o.photo){
+        inner += '<a class="rq-p" href="' + esc(photoLink(o.photo)) + '" target="_blank" rel="noopener">'
+              +  '<img src="' + esc(photoThumb(o.photo)) + '" alt="" '
+              +  'onerror="this.parentNode.innerHTML=\'<span class=&quot;hint&quot;>Photo saved &mdash; open in Drive</span>\'">'
+              +  '<span class="hint">Tap to open full size</span></a>';
+      } else {
+        inner += '<div class="hint" style="margin-top:6px">No photo on this one</div>';
+      }
+
+      inner += '<button class="opt" style="margin-top:10px" onclick="markFitted(\'' + esc(o.id) + '\');closeBotMenu()">'
+            +  'Mark fitted</button>';
+      inner += '</div>';
     });
-    inner += '<div class="lbl" style="margin:14px 0 6px">Or log another</div>';
+    inner += '<div class="lbl" style="margin:16px 0 6px">Or log another</div>';
   } else {
     inner += '<div class="lbl" style="margin-bottom:6px">Log a part as needing replacement</div>';
   }
