@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Homie Parts Logger</title>
+<title>Homie Fleet Management</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -114,6 +114,14 @@ select{cursor:pointer}
 .bot.down{border-left-color:var(--red)}
 .bot .bn{font-family:'IBM Plex Mono',monospace;font-size:15px;color:var(--text)}
 .bot .bs{font-size:12px;margin-top:5px}
+.bot .sn{display:flex;align-items:center;gap:7px;margin-top:5px}
+.bot .sn span{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);letter-spacing:.04em}
+.bot .sn.nosn{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#55635c;font-style:italic}
+.bot .cpy{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:5px;
+  padding:2px 7px;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;
+  text-transform:uppercase;cursor:pointer;flex:none}
+.bot .cpy:hover{border-color:var(--green);color:var(--lit)}
+.bot .cpy.ok{border-color:var(--green);color:var(--lit)}
 .bot.active .bs{color:var(--lit)}
 .bot.waiting .bs{color:var(--amber)}
 .bot.down .bs{color:var(--red)}
@@ -136,7 +144,7 @@ select{cursor:pointer}
 <body>
 <div class="wrap">
   <header>
-    <h1>Parts Logger</h1>
+    <h1>Fleet Management</h1>
     <span class="lbl" id="conn">connecting…</span>
   </header>
 
@@ -315,6 +323,46 @@ function longForm(longs){
 }
 
 
+
+/* ---------- bot serial numbers ---------- */
+var SERIALS = {
+  "Alpha":    "E21D6000P6H9LK8F",
+  "Bravo":    "E21D4000P18A4J03",
+  "Charlie":  "E21D6000P618998D",
+  "Echo":     "E21D6000Q377JC0A",
+  "Fox":      "E21D6000PB7BFC87",
+  "Godzilla": "E21D6000PB57788Z",
+  "Hugo":     "E21D6000PB5AM3G4",
+  "Igor":     "E21D6000Q39BH60C",
+  "Jackie":   "E21D6000Q3VB5289",
+  "Kilo":     "E21D6000PCG9BEC6"
+};
+
+function copySerial(bot, ev){
+  if(ev){ ev.stopPropagation(); }
+  var sn = SERIALS[bot];
+  if(!sn) return;
+  var btn = ev && ev.currentTarget;
+  function done(){
+    if(!btn) return;
+    var was = btn.textContent;
+    btn.textContent = "copied";
+    btn.classList.add("ok");
+    setTimeout(function(){ btn.textContent = was; btn.classList.remove("ok"); }, 1500);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(sn).then(done, function(){ fallbackCopy(sn); done(); });
+  } else { fallbackCopy(sn); done(); }
+}
+
+function fallbackCopy(text){
+  var t = document.createElement("textarea");
+  t.value = text; t.style.position = "fixed"; t.style.opacity = "0";
+  document.body.appendChild(t); t.select();
+  try { document.execCommand("copy"); } catch(e){}
+  document.body.removeChild(t);
+}
+
 /* ---------- which body region each long-lead part belongs to ---------- */
 var REGION = {
   "NX Board":"body",          /* the brains, mounted inside the torso */
@@ -452,6 +500,10 @@ function renderFleet(){
     h += '<div class="bot '+cls+'">'
        + (b.manual? '<span class="man">manual</span>':'')
        + '<div class="bn">'+esc(b.bot)+'</div>'
+       + (SERIALS[b.bot]
+           ? '<div class="sn"><span>'+esc(SERIALS[b.bot])+'</span>'
+             + '<button class="cpy" onclick="copySerial(\''+esc(b.bot)+'\',event)" title="Copy serial number">copy</button></div>'
+           : '<div class="sn nosn">no serial on file</div>')
        + '<div class="bs">'+esc(b.status)+'</div>'
        + robotSVG(b)
        + '<div class="bw">'+(b.waitingFor? 'Needs '+esc(b.waitingFor):'')+'</div>'
