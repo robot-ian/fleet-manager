@@ -97,6 +97,7 @@ select{cursor:pointer}
 .le.send .pill{background:rgba(224,90,78,.14);color:var(--red)}
 .le.restock .pill{background:rgba(61,220,107,.13);color:var(--lit)}
 .le.longlead .pill{background:rgba(61,214,220,.12);color:var(--cyan)}
+.le.corr .pill{background:rgba(232,163,61,.14);color:var(--amber)}
 .le .main{flex:1;color:#c3cec8;min-width:0}
 .le .main b{color:var(--text)}
 .le .when{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);flex:none}
@@ -177,7 +178,7 @@ select{cursor:pointer}
 /* ================================================================
    Paste your Apps Script /exec URL here (from the inventory deploy)
    ================================================================ */
-var API_URL = "https://script.google.com/macros/s/AKfycbzVxKwiqQUPl5ohWcKC6Qe11zclyYCLSxwpmmonNBNfHnGFTBe00TtwPsnJaEnGcfTk/exec";
+var API_URL = "https://script.google.com/macros/s/AKfycbw0tuSrkwSmy21Du-zjrxiKUE3_f7XgRTbOSzG8lZeVyZgc0E82rzSM1CeAUQwShaE/exec";
 
 var state = { parts:[], stock:{}, longOpen:[], donors:[], recent:[] };
 var mode = "consumable"; // or "longlead"
@@ -600,25 +601,47 @@ function openSendPanel(part){
   var m = document.createElement("div");
   m.className = "botmenu";
   m.innerHTML =
-    '<div class="inner wide"><h3>Send out &middot; ' + esc(part) + '</h3>'
+    '<div class="inner wide"><h3>Take out &middot; ' + esc(part) + '</h3>'
+    + '<div class="srcrow" style="margin-bottom:14px">'
+    +   '<button class="src on" data-mode="send" onclick="pickMode(this)">Sent to a bot</button>'
+    +   '<button class="src" data-mode="correction" onclick="pickMode(this)">Just a correction</button>'
+    + '</div>'
+    + '<div id="sendFields">'
     + '<div class="row2">'
     +   '<div class="f"><span class="lbl">Which bot is it for?</span>'
     +     '<select id="s_bot">' + botOptions("") + '</select></div>'
-    +   '<div class="f"><span class="lbl">How many</span>'
-    +     '<input id="s_qty" type="number" value="1" min="1" inputmode="numeric"></div>'
     + '</div>'
+    + '<div class="f"><span class="lbl">How many</span>'
+    +   '<input id="s_qty" type="number" value="1" min="1" inputmode="numeric"></div>'
     + '<div class="row2">'
     +   '<div class="f"><span class="lbl">Teleoperator</span>'
     +     '<input id="s_teleop" placeholder="Who received it (optional)"></div>'
     +   '<div class="f"><span class="lbl">Date sent</span>'
     +     '<input id="s_date" type="date" value="' + today + '"></div>'
     + '</div>'
-    + '<div class="f"><span class="lbl">Reason</span>'
+    + '</div>'
+    + '<div class="f"><span class="lbl" id="s_reasonLbl">Reason</span>'
     +   '<input id="s_reason" placeholder="What caused it (optional)"></div>'
+    + '<div class="hint" id="s_note" style="display:none;margin-top:-8px;margin-bottom:12px">'
+    +   'Recorded as a stock correction. No bot is credited with receiving it.</div>'
     + '<button class="save" onclick="submitSend(\'' + esc(part) + '\')">Log it</button>'
     + '<button class="cancel" onclick="closeBotMenu()">Cancel</button></div>';
   m.onclick = function(e){ if(e.target===m) closeBotMenu(); };
   document.body.appendChild(m);
+}
+
+function pickMode(btn){
+  Array.prototype.forEach.call(document.querySelectorAll(".srcrow .src"), function(b){ b.classList.remove("on"); });
+  btn.classList.add("on");
+  var correcting = btn.dataset.mode === "correction";
+  document.getElementById("sendFields").style.display = correcting ? "none" : "block";
+  document.getElementById("s_note").style.display     = correcting ? "block" : "none";
+  document.getElementById("s_reasonLbl").textContent  = correcting ? "What went wrong?" : "Reason";
+}
+
+function currentMode(){
+  var on = document.querySelector(".srcrow .src.on");
+  return on && on.dataset.mode ? on.dataset.mode : "send";
 }
 
 function submitSend(part){
@@ -626,18 +649,22 @@ function submitSend(part){
   var have = state.stock[part] != null ? state.stock[part] : 0;
   if(qty > have){ flash("Only " + have + " " + part + " in stock", false); return; }
 
-  var bot    = val("s_bot");
-  var teleop = val("s_teleop");
-  var date   = val("s_date") || new Date().toISOString().slice(0,10);
-  var reason = val("s_reason");
+  var correcting = currentMode() === "correction";
+  var today  = new Date().toISOString().slice(0,10);
+  var bot    = correcting ? "" : val("s_bot");
+  var teleop = correcting ? "" : val("s_teleop");
+  var date   = correcting ? today : (val("s_date") || today);
+  var reason = val("s_reason") || (correcting ? "Stock correction" : "");
 
   closeBotMenu();
   state.stock[part] = have - qty;
   render();
 
-  post({ action:"consumable", kind:"send", part:part, qty:qty,
-         teleop:teleop, bot:bot, broke:date, replaced:date, reason:reason },
-       null, "Sent " + qty + " × " + part + " to " + bot);
+  post({ action:"consumable", kind: correcting ? "correction" : "send",
+         part:part, qty:qty, teleop:teleop, bot:bot,
+         broke: correcting ? "" : date, replaced: correcting ? "" : date, reason:reason },
+       null, correcting ? ("Corrected " + part + " down by " + qty)
+                        : ("Sent " + qty + " × " + part + " to " + bot));
 }
 
 function setStock(part, current){
@@ -654,7 +681,7 @@ function setStock(part, current){
 
   post({
     action:"consumable",
-    kind: diff > 0 ? "restock" : "send",
+    kind: diff > 0 ? "correction-add" : "correction",
     part: part, qty: Math.abs(diff),
     reason: "Stock count corrected to " + target
   }, null, part + " set to " + target);
@@ -865,8 +892,10 @@ function renderRecent(){
   var h = '<div class="log">';
   state.recent.forEach(function(e){
     if(e.kind==="consumable"){
-      var cls = (e.sub||"").toLowerCase()==="restock" ? "restock" : "send";
-      var sign = cls==="restock" ? "+" : "−";
+      var k = (e.sub||"").toLowerCase();
+      var adds = (k==="restock" || k==="correction-add");
+      var cls = k.indexOf("correction")===0 ? "corr" : (adds ? "restock" : "send");
+      var sign = adds ? "+" : "−";
       var extra = [];
       if(e.teleop) extra.push(esc(e.teleop));
       if(e.bot) extra.push(esc(e.bot));
