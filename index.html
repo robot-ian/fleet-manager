@@ -139,6 +139,16 @@ select{cursor:pointer}
 .botmenu .opt:hover{border-color:var(--green);background:#1f2a24}
 .botmenu .opt.clear{color:var(--muted)}
 .botmenu .cancel{margin-top:12px;width:100%;background:none;border:none;color:var(--muted);font:inherit;cursor:pointer;padding:8px}
+.botmenu .inner.wide{max-width:460px;max-height:88vh;overflow-y:auto}
+.srcrow{display:flex;gap:7px}
+.srcrow .src{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);
+  border-radius:9px;padding:11px 4px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.srcrow .src.on{border-color:var(--green);background:#1f2a24;color:var(--lit)}
+.filebtn{display:block;text-align:center;background:var(--panel-2);border:1px dashed var(--line);
+  border-radius:9px;padding:13px;color:var(--muted);cursor:pointer;font-size:13px}
+.filebtn:hover{border-color:var(--green);color:var(--lit)}
+.photoprev{margin-top:8px}
+.photoprev img{width:100%;max-height:170px;object-fit:contain;border:1px solid var(--line);border-radius:8px;display:block;margin-bottom:5px}
 </style>
 </head>
 <body>
@@ -561,17 +571,63 @@ function setBot(bot, status){
 /* ---------- quick stock controls on the cards ---------- */
 function quickStock(part, delta){
   var have = state.stock[part] != null ? state.stock[part] : 0;
-  if(delta < 0 && have <= 0){ flash("No " + part + " left to send", false); return; }
 
-  state.stock[part] = have + delta;   // show it straight away
+  if(delta < 0){
+    if(have <= 0){ flash("No " + part + " left to send", false); return; }
+    openSendPanel(part);            /* ask who it went to */
+    return;
+  }
+
+  state.stock[part] = have + delta;
+  render();
+  post({ action:"consumable", kind:"restock", part:part, qty:1, reason:"Quick restock" },
+       null, "Restocked 1 × " + part);
+}
+
+/* ---------- sending a consumable out ---------- */
+function openSendPanel(part){
+  var today = new Date().toISOString().slice(0,10);
+  var m = document.createElement("div");
+  m.className = "botmenu";
+  m.innerHTML =
+    '<div class="inner wide"><h3>Send out &middot; ' + esc(part) + '</h3>'
+    + '<div class="row2">'
+    +   '<div class="f"><span class="lbl">Which bot is it for?</span>'
+    +     '<select id="s_bot">' + botOptions("") + '</select></div>'
+    +   '<div class="f"><span class="lbl">How many</span>'
+    +     '<input id="s_qty" type="number" value="1" min="1" inputmode="numeric"></div>'
+    + '</div>'
+    + '<div class="row2">'
+    +   '<div class="f"><span class="lbl">Teleoperator</span>'
+    +     '<input id="s_teleop" placeholder="Who received it (optional)"></div>'
+    +   '<div class="f"><span class="lbl">Date sent</span>'
+    +     '<input id="s_date" type="date" value="' + today + '"></div>'
+    + '</div>'
+    + '<div class="f"><span class="lbl">Reason</span>'
+    +   '<input id="s_reason" placeholder="What caused it (optional)"></div>'
+    + '<button class="save" onclick="submitSend(\'' + esc(part) + '\')">Log it</button>'
+    + '<button class="cancel" onclick="closeBotMenu()">Cancel</button></div>';
+  m.onclick = function(e){ if(e.target===m) closeBotMenu(); };
+  document.body.appendChild(m);
+}
+
+function submitSend(part){
+  var qty = parseInt(val("s_qty"), 10) || 1;
+  var have = state.stock[part] != null ? state.stock[part] : 0;
+  if(qty > have){ flash("Only " + have + " " + part + " in stock", false); return; }
+
+  var bot    = val("s_bot");
+  var teleop = val("s_teleop");
+  var date   = val("s_date") || new Date().toISOString().slice(0,10);
+  var reason = val("s_reason");
+
+  closeBotMenu();
+  state.stock[part] = have - qty;
   render();
 
-  post({
-    action:"consumable",
-    kind: delta > 0 ? "restock" : "send",
-    part: part, qty: Math.abs(delta),
-    reason: delta > 0 ? "Quick restock" : "Quick send"
-  }, null, (delta > 0 ? "Restocked 1 × " : "Sent 1 × ") + part);
+  post({ action:"consumable", kind:"send", part:part, qty:qty,
+         teleop:teleop, bot:bot, broke:date, replaced:date, reason:reason },
+       null, "Sent " + qty + " × " + part + " to " + bot);
 }
 
 function setStock(part, current){
@@ -639,24 +695,118 @@ function pickRegion(bot, region, side){
 
 function logFromDiagram(bot, part, side){
   closeBotMenu();
-  var today = new Date().toISOString().slice(0,10);
-  var id = "tmp" + Date.now();
+  openLogPanel(bot, part, side);
+}
 
-  /* show it immediately */
+/* ---------- the detail panel: source, date, photo ---------- */
+var pendingPhoto = null;
+
+function openLogPanel(bot, part, side){
+  pendingPhoto = null;
+  var today = new Date().toISOString().slice(0,10);
+  var title = esc(bot) + ' &middot; ' + (side ? esc(side) + ' ' : '') + esc(part);
+
+  var m = document.createElement("div");
+  m.className = "botmenu";
+  m.innerHTML =
+    '<div class="inner wide"><h3>' + title + '</h3>'
+    + '<div class="lbl" style="margin-bottom:6px">Where is the replacement coming from?</div>'
+    + '<div class="srcrow">'
+    +   '<button class="src on" data-src="On order from Unitree" onclick="pickSrc(this)">Unitree</button>'
+    +   '<button class="src" data-src="Scavenged from another bot" onclick="pickSrc(this)">Scavenge</button>'
+    +   '<button class="src" data-src="Have a spare" onclick="pickSrc(this)">Spare</button>'
+    + '</div>'
+    + '<div class="f" id="donorRow" style="display:none;margin-top:12px">'
+    +   '<span class="lbl">Taken from which bot?</span>'
+    +   '<select id="p_donor">' + botOptions(bot) + '</select></div>'
+    + '<div class="f" style="margin-top:12px"><span class="lbl">Date it broke</span>'
+    +   '<input id="p_broke" type="date" value="' + today + '"></div>'
+    + '<div class="f"><span class="lbl">Photo</span>'
+    +   '<label class="filebtn" for="p_photo">Choose or take a photo</label>'
+    +   '<input id="p_photo" type="file" accept="image/*" style="display:none" onchange="stagePhoto(this)">'
+    +   '<div id="photoPrev" class="photoprev"></div></div>'
+    + '<button class="save" onclick="submitLog(\'' + esc(bot) + '\',\'' + esc(part) + '\',\'' + esc(side) + '\')">Log it</button>'
+    + '<button class="cancel" onclick="closeBotMenu()">Cancel</button></div>';
+  m.onclick = function(e){ if(e.target===m) closeBotMenu(); };
+  document.body.appendChild(m);
+}
+
+function botOptions(exclude){
+  return (state.bots||[])
+    .filter(function(b){ return b.bot !== exclude; })
+    .map(function(b){ return '<option>' + esc(b.bot) + '</option>'; }).join("");
+}
+
+function pickSrc(btn){
+  Array.prototype.forEach.call(document.querySelectorAll(".src"), function(b){ b.classList.remove("on"); });
+  btn.classList.add("on");
+  var scav = btn.dataset.src.indexOf("Scaveng") === 0;
+  document.getElementById("donorRow").style.display = scav ? "block" : "none";
+}
+
+function currentSrc(){
+  var on = document.querySelector(".src.on");
+  return on ? on.dataset.src : "On order from Unitree";
+}
+
+/* shrink the photo before sending so it fits comfortably through Apps Script */
+function stagePhoto(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var prev = document.getElementById("photoPrev");
+  prev.innerHTML = '<span class="hint">Preparing photo…</span>';
+
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var img = new Image();
+    img.onload = function(){
+      var max = 1200, w = img.width, h = img.height;
+      if(w > max || h > max){ var r = Math.min(max/w, max/h); w = Math.round(w*r); h = Math.round(h*r); }
+      var c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      var dataUrl = c.toDataURL("image/jpeg", 0.72);
+      pendingPhoto = dataUrl.split(",")[1];
+      var kb = Math.round(pendingPhoto.length * 0.75 / 1024);
+      prev.innerHTML = '<img src="' + dataUrl + '" alt="">'
+                     + '<span class="hint">Ready &middot; ' + kb + ' KB</span>';
+    };
+    img.onerror = function(){ prev.innerHTML = '<span class="hint">Couldn\'t read that image</span>'; };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function submitLog(bot, part, side){
+  var src       = currentSrc();
+  var donor     = /Scaveng/i.test(src) ? val("p_donor") : "";
+  var broke     = val("p_broke") || new Date().toISOString().slice(0,10);
+
+  closeBotMenu();
+
+  /* show it straight away */
+  var id = "tmp" + Date.now();
   state.longOpen = state.longOpen || [];
-  state.longOpen.push({ id:id, part:part, side:side||"", bot:bot, broke:today,
-                        source:"", donor:"", status:"Waiting", fitted:"", note:"" });
+  state.longOpen.push({ id:id, part:part, side:side||"", bot:bot,
+                        broke:broke, source:src, donor:donor, status:"Waiting", fitted:"", note:"" });
+  if(donor){
+    state.donors = (state.donors||[]).concat([{ donor:donor, part:part, forBot:bot, since:broke }]);
+  }
   (state.bots||[]).forEach(function(x){
     if(x.bot !== bot) return;
     x.waits = (x.waits||[]).concat([{ part:part, side:side||"" }]);
-    x.waitingFor = x.waits.map(function(w){ return (w.side? w.side+" ":"") + w.part; }).join(", ");
+    x.waitingFor = x.waits.map(function(w){
+      return (w.side? w.side+" ":"") + w.part;
+    }).join(", ");
     if(!x.manual) x.status = "Waiting for Part";
   });
   render();
 
-  post({ action:"longlead", part:part, side:side||"", bot:bot, broke:today,
-         source:"", status:"Waiting", note:"Logged from diagram" },
+  post({ action:"longlead", part:part, side:side||"", bot:bot,
+         broke:broke, source:src, donor:donor, status:"Waiting",
+         photo: pendingPhoto || "", photoName: (bot+"-"+part+"-"+broke+".jpg").replace(/\s+/g,"_") },
        null, part + " logged for " + bot);
+  pendingPhoto = null;
 }
 
 function renderRecent(){
