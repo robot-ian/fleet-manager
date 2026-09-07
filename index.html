@@ -11,7 +11,11 @@
 <dialog id="dialog" aria-labelledby="dialogTitle"><div class="dialoghead"><h2 id="dialogTitle"></h2><button class="iconbutton" data-action="close" aria-label="Close panel">✕</button></div><div id="dialogBody" class="dialogbody"></div></dialog><div id="toast" class="toast" role="status"></div>
 <script>
 'use strict';
-const LIVE=!!(window.google&&google.script&&google.script.run), STAGES=['Reported','Ordered','Received','Installed','Tested'];
+// Google Apps Script Web app URL. This HTML belongs in GitHub / Vercel.
+const API_URL = "https://script.google.com/macros/s/AKfycbxoNPblWv8YqAB6vGPYcSrLUj6DdNCX3TCNU-lm5kpqdnJnI0bbAq8c8pw7D1dESJSY/exec";
+// Only an explicit ?demo=1 uses sample data. A failed live connection never does.
+const LIVE = new URLSearchParams(window.location.search).get('demo') !== '1';
+const STAGES=['Reported','Ordered','Received','Installed','Tested'];
 const SOURCES=['Not decided','On order from Unitree','Have a spare','Scavenged from another bot'];
 const SIDED=['Shoulder Motor','Hand Motor','Leg Motor','Feet','Gripper','Wrist Camera','Wrist 3D print','Wrist Camera Cable'];
 const REGION={'Head Camera':'head','Head 3D print':'head','Wrist Camera':'hand','Wrist 3D print':'hand','Wrist Camera Cable':'hand','NX Board':'body','Core Body Motor':'body','Robot Hook':'body','Port PCB':'neck','Battery 1':'bat1','Battery 2':'bat2','IMU Board':'hips','Shoulder Motor':'shoulder','Hand Motor':'hand','Gripper':'gripper','Leg Motor':'leg','Feet':'feet'};
@@ -39,8 +43,41 @@ const when=n=>new Date(Date.now()-n*86400000).toISOString();
 const parts=['Head Camera','Wrist Camera','Head 3D print','Wrist 3D print','USB Hub','Type C to C cable (Short)','Type C to C cable (Long)','Wrist Camera Cable','Gripper wire','Gripper board','USB A to Micro USB Cable (Short)','USB A to Micro USB Cable (Long)'].map(name=>({name,category:'consumable',low:2})).concat(['NX Board','Port PCB','Battery 1','Battery 2','Shoulder Motor','Leg Motor','IMU Board','Core Body Motor','Hand Motor','Feet','Robot Hook','Gripper'].map(name=>({name,category:'longlead',low:0})));
 const repair=(id,bot,part,side,status,owner,days,note,extra={})=>({id,bot,part,side,status,owner,when:when(days),broke:when(days).slice(0,10),source:'On order from Unitree',note,photo:'',isDonor:false,...extra});
 return derive({ok:true,version:2,parts,stock:Object.fromEntries(parts.filter(p=>p.category==='consumable').map((p,i)=>[p.name,[0,2,8,6,1,14,7,4,12,3,9,5][i]])),bots:['Alpha','Bravo','Charlie','Echo','Fox','Godzilla','Hugo','Igor','Jackie','Kilo'].map((bot,i)=>({bot,manual:'',note:'',serial:`DEMO-G1-${String(i+1).padStart(3,'0')}`})),repairs:[repair('demo-1','Alpha','Shoulder Motor','Left','Reported','Ian',2,'Motor stops under load. Keep the bot off collection until replaced and tested.'),repair('demo-2','Charlie','Port PCB','','Ordered','Technician A',5,'Replacement requested from Unitree.'),repair('demo-3','Echo','Gripper','Right','Installed','Technician B',1,'Replacement fitted. Waiting for the function check.',{source:'Scavenged from another bot',donor:'Bravo'}),repair('D:demo-3','Bravo','Gripper','Right','Reported','Technician B',1,'Donated to Echo. Bravo needs its own replacement.',{isDonor:true,parentId:'demo-3',forBot:'Echo',source:'Replacement for donated part'}),repair('demo-4','Hugo','Battery 1','','Received','Technician A',3,'Spare received; install and test.',{source:'Have a spare'}),repair('demo-5','Kilo','Hand Motor','Left','Tested','Ian',7,'Installation tested and bot returned to collection.')],activity:[{when:when(0),actor:'Technician B',action:'repair_update',summary:'Echo · Right Gripper → Installed'},{when:when(0),actor:'Ian',action:'stock',summary:'Sent 1 × Head Camera · Alpha'},{when:when(1),actor:'Technician A',action:'repair_update',summary:'Hugo · Battery 1 → Received'},{when:when(1),actor:'Technician B',action:'repair_create',summary:'Bravo · Right Gripper donated to Echo'}]});}
-function rpc(method,payload){return new Promise((resolve,reject)=>{const runner=google.script.run.withSuccessHandler(resolve).withFailureHandler(e=>reject(new Error(e.message||String(e))));if(method==='getDashboard')runner.getDashboard();else runner.mutateFleet(payload);});}
-async function refresh(){if(busy||loading)return;const epoch=dataEpoch;loading=true;$('refresh').disabled=true;$('sync').textContent='Refreshing…';try{if(LIVE){const next=await rpc('getDashboard');if(!next?.ok||next.version!==2)throw Error('Deploy the v2 backend and run upgradeFleetV2 first.');if(epoch!==dataEpoch)return;state=next;}else{if(!state){try{state=JSON.parse(storage.get('homie-fleet-demo-v2'));}catch{}if(!state||state.version!==2)state=seed();}derive(state);}render();$('notice').innerHTML='';$('sync').textContent=(LIVE?'Updated ':'Demo · ')+new Date().toLocaleTimeString('en-MY',{timeZone:'Asia/Kuala_Lumpur',hour:'2-digit',minute:'2-digit'});}catch(e){if(epoch!==dataEpoch)return;$('sync').textContent='Refresh failed';$('notice').innerHTML=`<div class="notice">${esc(e.message)}${state?' Showing the last loaded data.':''} ${button('Retry','refresh')}</div>`;if(!state)$('main').innerHTML='<div class="empty"><strong>Fleet data unavailable</strong>Your data has not been replaced with sample figures.</div>';}finally{loading=false;$('refresh').disabled=false;}}
+function endpoint(params={}){
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(API_URL))throw Error('Set API_URL to the deployed Google Apps Script /exec URL.');
+  const url=new URL(API_URL);url.searchParams.set('app','fleet');url.searchParams.set('_t',String(Date.now()));
+  Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));return url.toString();
+}
+async function readApi(params={}){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+  try{
+    const response=await fetch(endpoint(params),{cache:'no-store',credentials:'omit',redirect:'follow',signal:controller.signal});
+    if(!response.ok)throw Error('Google returned HTTP '+response.status+'. Check the web-app deployment access.');
+    const text=await response.text();let value;
+    try{value=JSON.parse(text);}catch{throw Error('The backend returned HTML instead of fleet data. Replace Inventory.gs with the matching file supplied with this HTML, run upgradeFleetV2, and update the deployment to a New version.');}
+    if(!value.ok)throw Error(value.error||'The fleet backend returned an error.');return value;
+  }catch(e){if(e.name==='AbortError')throw Error('Google took too long to respond. Try Refresh.');if(e instanceof TypeError)throw Error('Could not read the Apps Script endpoint. Check its URL, deployment access and internet connection.');throw e;}
+  finally{clearTimeout(timer);}
+}
+async function rpc(method,payload){
+  if(method==='getDashboard')return readApi();
+  const attemptId=uid(),controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+  // A cross-origin no-cors POST is opaque: never treat fetch completion as Saved.
+  // Read a separate durable receipt, keyed to this transport attempt, before success.
+  try{await fetch(endpoint(),{method:'POST',mode:'no-cors',credentials:'omit',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,attemptId}),signal:controller.signal});}catch{}finally{clearTimeout(timer);}
+  const deadline=Date.now()+45000;
+  while(Date.now()<deadline){
+    let result;
+    try{result=await readApi({receipt:attemptId});}catch{await new Promise(r=>setTimeout(r,1500));continue;}
+    if(result.receipt==='error')throw Error(result.error||'The backend rejected this change.');
+    if(result.receipt==='saved'&&result.requestId===payload.requestId){
+      if(!result.data?.ok)throw Error('The save was confirmed, but refreshing failed. Use Refresh.');return result.data;
+    }
+    await new Promise(r=>setTimeout(r,1500));
+  }
+  throw Error('Save not confirmed yet. It may have reached Google. Retry this unchanged form to safely reuse its request ID.');
+}
+async function refresh(){if(busy||loading)return;const epoch=dataEpoch;loading=true;$('refresh').disabled=true;$('sync').textContent='Refreshing…';try{if(LIVE){const next=await rpc('getDashboard');if(!next?.ok||next.version!==2)throw Error('Deploy the new Inventory.gs backend and run upgradeFleetV2 first.');if(epoch!==dataEpoch)return;state=next;}else{if(!state){try{state=JSON.parse(storage.get('homie-fleet-demo-v2'));}catch{}if(!state||state.version!==2)state=seed();}derive(state);}render();$('notice').innerHTML='';$('sync').textContent=(LIVE?'Updated ':'Demo · ')+new Date().toLocaleTimeString('en-MY',{timeZone:'Asia/Kuala_Lumpur',hour:'2-digit',minute:'2-digit'});}catch(e){if(epoch!==dataEpoch)return;$('sync').textContent='Refresh failed';$('notice').innerHTML=`<div class="notice">${esc(e.message)}${state?' Showing the last loaded data.':''} ${button('Retry','refresh')}</div>`;if(!state)$('main').innerHTML='<div class="empty"><strong>Fleet data unavailable</strong>Your data has not been replaced with sample figures.</div>';}finally{loading=false;$('refresh').disabled=false;}}
 function render(){if(!state)return;$('nav').innerHTML=[['fleet','Fleet'],['repair','Repairs'],['stock','Stock'],['activity','Activity']].map(([key,label])=>`<button ${attr('tab',key)} ${tab===key?'aria-current="page"':''}>${icon(key)}${label}</button>`).join('');let title={fleet:'Fleet overview',repair:'Repair queue',stock:'Parts & stock',activity:'Activity log'}[tab];let subtitle={fleet:`${state.bots.length} robots · ${state.bots.filter(b=>b.status==='Active').length} ready for collection`,repair:'Track each repair through installation and testing.',stock:'Shelf counts and parts issued to your bots.',activity:'Repair updates, stock movements and status changes.'}[tab];$('main').innerHTML=`<div class="pagehead"><div><h1>${title}</h1><p>${subtitle}</p></div>${button(icon('plus')+' Report damage','report','','primary')}</div>`+(tab==='fleet'?fleetView():tab==='repair'?repairsView():tab==='stock'?stockView():activityView());}
 function filters(items){return `<div class="filters" aria-label="Filter results">${items.map(([id,label])=>`<button ${attr('filter',id)} class="${filter===id?'selected':''}" aria-pressed="${filter===id}">${label}</button>`).join('')}</div>`;}
 function searchbar(placeholder,items){return `<div class="filterbar"><label class="search"><span class="visuallyhidden">${placeholder}</span>${icon('search')}<input id="search" type="search" placeholder="${placeholder}" value="${esc(query)}"></label>${filters(items)}</div>`;}
